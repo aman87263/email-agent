@@ -105,6 +105,17 @@ export function ChatPage() {
           }
         }
         break
+      case 'RUN_STARTED':
+        dispatch(addRun({
+          run_id: event.payload.runId,
+          thread_id: event.payload.threadId,
+          status: 'running',
+          outcome: null,
+          created_at: new Date().toISOString(),
+          completed_at: null,
+        }))
+        dispatch(setCurrentRun(event.payload.runId))
+        break
     }
   }
 
@@ -127,18 +138,7 @@ export function ChatPage() {
     setInput('')
 
     // Create new run
-    const runId = crypto.randomUUID()
-    const threadId = currentRun?.thread_id || crypto.randomUUID()
-
-    dispatch(addRun({
-      run_id: runId,
-      thread_id: threadId,
-      status: 'running',
-      outcome: null,
-      created_at: new Date().toISOString(),
-      completed_at: null,
-    }))
-    dispatch(setCurrentRun(runId))
+    const threadId = currentRun?.thread_id
     setIsStreaming(true)
 
     abortControllerRef.current = new AbortController()
@@ -198,18 +198,7 @@ export function ChatPage() {
   const handleApprove = async (proposalId: string, approved: boolean) => {
     dispatch(clearActiveProposal())
 
-    const runId = crypto.randomUUID()
-    const threadId = currentRun?.thread_id || crypto.randomUUID()
-
-    dispatch(addRun({
-      run_id: runId,
-      thread_id: threadId,
-      status: 'running',
-      outcome: null,
-      created_at: new Date().toISOString(),
-      completed_at: null,
-    }))
-    dispatch(setCurrentRun(runId))
+    const threadId = currentRun?.thread_id
     setIsStreaming(true)
 
     try {

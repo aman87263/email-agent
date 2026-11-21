@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from anyio import to_thread
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -38,8 +39,10 @@ class GmailProvider:
                 return build('gmail', 'v1', credentials=creds, cache_discovery=False)
             # Try refresh
             try:
-                creds.refresh(Request())
-                return build('gmail', 'v1', credentials=creds, cache_discovery=False)
+                await to_thread.run_sync(lambda: creds.refresh(Request()))
+                return await to_thread.run_sync(
+                    lambda: build('gmail', 'v1', credentials=creds, cache_discovery=False)
+                )
             except Exception:
                 # Token refresh failed, will re-auth below
                 pass
@@ -59,7 +62,7 @@ class GmailProvider:
         )
 
         try:
-            creds.refresh(Request())
+            await to_thread.run_sync(lambda: creds.refresh(Request()))
         except Exception as e:
             # Mark connection as revoked
             await self.connection_manager.revoke_connection(connection_id, user_id)
@@ -75,7 +78,9 @@ class GmailProvider:
             )
 
         self._service_cache[cache_key] = creds
-        return build('gmail', 'v1', credentials=creds, cache_discovery=False)
+        return await to_thread.run_sync(
+            lambda: build('gmail', 'v1', credentials=creds, cache_discovery=False)
+        )
 
     def _parse_message(self, msg: dict, fmt: str) -> MessageDetail:
         headers = {h['name']: h['value'] for h in msg.get('payload', {}).get('headers', [])}
@@ -154,7 +159,7 @@ class GmailProvider:
                     pageToken=query.page_token,
                 )
             )
-            response = request.execute()
+            response = await to_thread.run_sync(request.execute)
         except HttpError as e:
             if e.resp.status == 401:
                 await self.connection_manager.revoke_connection(connection_id, user_id)
@@ -184,7 +189,7 @@ class GmailProvider:
 
         try:
             request = service.users().messages().get(userId='me', id=message_id, format=gmail_fmt)
-            response = request.execute()
+            response = await to_thread.run_sync(request.execute)
         except HttpError as e:
             if e.resp.status == 401:
                 await self.connection_manager.revoke_connection(connection_id, user_id)
@@ -205,7 +210,7 @@ class GmailProvider:
 
         try:
             request = service.users().threads().get(userId='me', id=thread_id, format=gmail_fmt)
-            response = request.execute()
+            response = await to_thread.run_sync(request.execute)
         except HttpError as e:
             if e.resp.status == 401:
                 await self.connection_manager.revoke_connection(connection_id, user_id)
@@ -219,7 +224,7 @@ class GmailProvider:
 
         try:
             request = service.users().labels().list(userId='me')
-            response = request.execute()
+            response = await to_thread.run_sync(request.execute)
         except HttpError as e:
             if e.resp.status == 401:
                 await self.connection_manager.revoke_connection(connection_id, user_id)
@@ -299,7 +304,7 @@ class GmailProvider:
 
         try:
             request = service.users().messages().batchModify(userId='me', body=body)
-            request.execute()
+            await to_thread.run_sync(request.execute)
         except HttpError as e:
             if e.resp.status == 401:
                 await self.connection_manager.revoke_connection(grant.connection_id, user_id)

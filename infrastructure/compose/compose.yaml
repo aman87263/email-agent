@@ -82,7 +82,7 @@ services:
           memory: 1.5G
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.8-alpine
     container_name: email-agent-postgres
     restart: unless-stopped
     environment:

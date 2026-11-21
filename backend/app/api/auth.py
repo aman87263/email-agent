@@ -132,7 +132,10 @@ async def callback(
     claims = await oidc.exchange_code(code, code_verifier, get_settings().keycloak_redirect_uri)
 
     # Create session
-    session_data = await session_manager.create_session(claims)
+    try:
+        session_data = await session_manager.create_session(claims)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail='Not authorized for Email Agent') from exc
 
     # Set session cookie and redirect to SPA
     response = RedirectResponse(url=get_settings().frontend_url, status_code=302)

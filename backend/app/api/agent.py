@@ -96,7 +96,9 @@ async def start_run(
         resume=input_data.resume,
     )
 
-    start_seq = await coordinator.current_seq(run.id)
+    # Include the persisted RunStarted event so the client learns the server
+    # assigned run/thread identifiers before handling subsequent events.
+    start_seq = 0
 
     return StreamingResponse(
         _stream_run(coordinator, run.id, input_data, start_seq),
@@ -143,7 +145,13 @@ async def _stream_run(
 
 
 def _sse(seq: int, event_type: str, payload: dict) -> str:
-    return f'id: {seq}\nevent: {event_type}\ndata: {json.dumps(payload)}\n\n'
+    protocol_type = {'RunStarted': 'RUN_STARTED', 'RunFinished': 'RUN_FINISHED'}.get(
+        event_type, event_type
+    )
+    # The AG-UI client consumes the event type from the JSON payload. Keep it
+    # there as well as in the SSE field so native SSE clients remain compatible.
+    data = {'type': protocol_type, **payload}
+    return f'id: {seq}\nevent: {protocol_type}\ndata: {json.dumps(data)}\n\n'
 
 
 @router.get('/runs/{run_id}', response_model=RunStateResponse)

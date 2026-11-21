@@ -36,6 +36,7 @@ class Settings(BaseSettings):
         'https://capriman27.duckdns.org/auth/realms/email-agent/protocol/openid-connect/certs'
     )
     keycloak_client_id: str = 'email-agent-bff'
+    keycloak_required_role: str = 'email-agent-user'
     keycloak_client_secret: str
     keycloak_audience: str = 'email-agent-api'
     keycloak_end_session_endpoint: str = (

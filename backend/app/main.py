@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -9,6 +10,8 @@ from app.api import agent, audit, auth, connections
 from app.config import get_settings
 from app.db.session import close_db, init_db
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -16,6 +19,18 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     if settings.environment != 'test':
         await init_db()
+        # Resolve any provider write whose process died after submission. This
+        # only reads current Gmail labels; it never retries an unknown write.
+        from app.auth.session import ConnectionManager
+        from app.db.session import get_session
+        from app.execution.engine import ExecutionEngine
+        from app.policy.engine import PolicyEngine
+        from app.providers.gmail import GmailProvider
+
+        manager = ConnectionManager()
+        executor = ExecutionEngine(manager, GmailProvider(manager), PolicyEngine())
+        async with get_session() as db:
+            await executor.reconcile_all_pending(db)
     yield
     # Shutdown
     await close_db()
@@ -36,7 +51,7 @@ def create_app() -> FastAPI:
     # CORS - only allow our frontend origin
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.frontend_url],
+        allow_origins=[settings.frontend_url.rstrip('/')],
         allow_credentials=True,
         allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         allow_headers=['*'],
@@ -69,7 +84,7 @@ def create_app() -> FastAPI:
                 await conn.execute(text('SELECT 1'))
             checks['database'] = True
         except Exception:
-            pass
+            logger.warning('Database readiness check failed', exc_info=True)
 
         # Keycloak JWKS
         try:
@@ -77,7 +92,7 @@ def create_app() -> FastAPI:
             await oidc._get_jwks()
             checks['keycloak'] = True
         except Exception:
-            pass
+            logger.warning('Keycloak readiness check failed', exc_info=True)
 
         status_code = 200 if all(checks.values()) else 503
         return JSONResponse(content={'checks': checks}, status_code=status_code)
@@ -86,6 +101,7 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         settings = get_settings()
+        logger.exception('Unhandled API exception', extra={'path': request.url.path})
         if settings.debug:
             import traceback
 

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -12,13 +12,13 @@ if TYPE_CHECKING:
     from app.db.models import ApprovalProposal as ApprovalProposalLike
 
 
-class PolicyDecision(str, Enum):
+class PolicyDecision(StrEnum):
     ALLOW = 'allow'
     DENY = 'deny'
     REQUIRE_APPROVAL = 'require_approval'
 
 
-class RiskClass(str, Enum):
+class RiskClass(StrEnum):
     READ = 'read'
     WRITE_LOW = 'write_low'
     WRITE_HIGH = 'write_high'
@@ -183,13 +183,24 @@ class PolicyEngine:
                 )
             # In v1, only existing label IDs allowed - validation happens at execution
 
+        # Normalize the effective label delta before minting the digest.  The
+        # executor independently derives these values, so both sides must use
+        # the same canonical representation.
+        if tool == 'propose_trash':
+            add_labels, remove_labels = ['TRASH'], []
+        elif tool == 'propose_archive':
+            add_labels, remove_labels = [], ['INBOX']
+        else:
+            add_labels = list(args.get('add_labels', []))
+            remove_labels = list(args.get('remove_labels', []))
+
         # Compute digest for the proposal
         expires_at = datetime.now(UTC) + timedelta(hours=24)  # 24-hour proposal expiry
         action_digest = self._compute_action_digest(
             connection_id=connection.id,
             tool=tool,
-            add_labels=args.get('add_labels', []),
-            remove_labels=args.get('remove_labels', []),
+            add_labels=add_labels,
+            remove_labels=remove_labels,
             message_ids=sorted(message_ids),
             expires_at=expires_at,
         )

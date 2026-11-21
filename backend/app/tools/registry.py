@@ -322,15 +322,14 @@ class ToolExecutor:
             )
             total_bytes += msg.size_estimate
 
-            # Include first 5 as sample refs
+            # Proposal persistence is intentionally body-free.  These durable
+            # references are sufficient to identify the approved targets; never
+            # put subject, address, date, snippet, or body data in the database.
             if i < 5:
                 sample_refs.append(
                     {
                         'message_id': msg.id,
                         'thread_id': msg.thread_id,
-                        'subject': msg.headers.get('Subject', ''),
-                        'from': msg.headers.get('From', ''),
-                        'date': msg.headers.get('Date', ''),
                         'size_estimate': msg.size_estimate,
                     }
                 )
@@ -357,6 +356,7 @@ class ToolExecutor:
             proposal = ApprovalProposal(
                 connection_id=conn.id,
                 user_id=self.coordinator.user_id,
+                run_id=getattr(self.coordinator, 'active_run_id', None),
                 tool=tool_name,
                 action_digest=policy_result.grant.action_digest,
                 policy_version=self.policy_engine.policy_version,
@@ -393,11 +393,15 @@ class ToolExecutor:
                 success=True,
                 data={
                     'proposal_id': str(proposal.id),
+                    'tool': tool_name,
+                    'message_ids': [item['message_id'] for item in proposal_items],
                     'action_digest': proposal.action_digest,
                     'estimated_count': proposal.estimated_count,
                     'estimated_bytes': proposal.estimated_bytes,
                     'sample_refs': sample_refs,
                     'expires_at': proposal.expires_at.isoformat(),
+                    'label_delta_add': add_labels,
+                    'label_delta_remove': remove_labels,
                     'requires_approval': True,
                     'message': f'Proposal created for {tool_name}. Requires human approval.',
                 },

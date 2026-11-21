@@ -8,7 +8,7 @@ const proposal = {
   estimatedCount: 12,
   estimatedBytes: 4096,
   sampleRefs: [
-    { message_id: 'm1', thread_id: 't1', subject: 'Invoice', from: 'a@b.c', date: '2026-01-01', size_estimate: 100 },
+    { message_id: 'm1', thread_id: 't1', size_estimate: 100 },
   ],
   expiresAt: '2026-11-22T00:00:00Z',
   actionDigest: 'abc123',

@@ -9,9 +9,6 @@ interface ProposalSnapshot {
   sampleRefs: Array<{
     message_id: string
     thread_id: string
-    subject: string
-    from: string
-    date: string
     size_estimate: number
   }>
   expiresAt: string
@@ -120,9 +117,8 @@ export function ApprovalCard({ proposal, onApprove, onReject }: ApprovalCardProp
               <div className="max-h-48 overflow-y-auto space-y-2">
                 {proposal.sampleRefs.map((ref) => (
                   <div key={ref.message_id} className="p-3 rounded border border-border bg-muted/50">
-                    <p className="font-medium text-sm truncate">{ref.subject || '(no subject)'}</p>
-                    <p className="text-xs text-muted-foreground truncate">{ref.from}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(ref.date).toLocaleString()}</p>
+                    <p className="font-mono text-xs truncate">Message {ref.message_id}</p>
+                    <p className="text-xs text-muted-foreground">{formatBytes(ref.size_estimate)}</p>
                   </div>
                 ))}
               </div>

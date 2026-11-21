@@ -751,20 +751,24 @@ class ExecutionEngine:
         db.add(audit)
         await db.commit()
 
-    async def reconcile_all_pending(self, db: AsyncSession, user_id: UUID) -> int:
+    async def reconcile_all_pending(self, db: AsyncSession) -> int:
         """Reconcile all pending/submitted executions older than threshold. Called on startup."""
 
         threshold = datetime.now(UTC) - timedelta(seconds=120)
 
-        executions_stmt = select(OperationExecution).where(
-            OperationExecution.state.in_([ExecutionState.PENDING, ExecutionState.SUBMITTED]),
-            OperationExecution.updated_at < threshold,
+        executions_stmt = (
+            select(OperationExecution, EmailConnection.user_id)
+            .join(EmailConnection, EmailConnection.id == OperationExecution.connection_id)
+            .where(
+                OperationExecution.state.in_([ExecutionState.PENDING, ExecutionState.SUBMITTED]),
+                OperationExecution.updated_at < threshold,
+            )
         )
         executions_result = await db.execute(executions_stmt)
-        executions = list(executions_result.scalars().all())
+        executions = list(executions_result.all())
 
         reconciled = 0
-        for execution in executions:
+        for execution, user_id in executions:
             # Get proposal to find items
             proposal_stmt = select(ApprovalProposal).where(
                 ApprovalProposal.action_digest == execution.action_digest

@@ -8,9 +8,6 @@ export interface ProposalSnapshot {
   sampleRefs: Array<{
     message_id: string
     thread_id: string
-    subject: string
-    from: string
-    date: string
     size_estimate: number
   }>
   expiresAt: string

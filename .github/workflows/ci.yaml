@@ -105,7 +105,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api
           tags: |
             type=ref,event=branch
-            type=sha,prefix=
+            type=sha,format=long,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push backend
@@ -126,7 +126,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web
           tags: |
             type=ref,event=branch
-            type=sha,prefix=
+            type=sha,format=long,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push frontend
@@ -154,8 +154,9 @@ jobs:
           key: ${{ secrets.OCI_SSH_KEY }}
           script: |
             cd /opt/email-agent
-            export API_IMAGE=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-api:latest
-            export WEB_IMAGE=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-web:latest
+            echo "${{ secrets.GHCR_READ_TOKEN }}" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+            export API_IMAGE=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-api:${{ github.sha }}
+            export WEB_IMAGE=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-web:${{ github.sha }}
             docker compose -f infrastructure/compose/compose.yaml pull
             docker compose -f infrastructure/compose/compose.yaml up -d
             docker image prune -f

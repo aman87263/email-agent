@@ -49,6 +49,8 @@ class SessionManager:
         return hmac.new(csrf_secret.encode(), session_id.encode(), hashlib.sha256).hexdigest()
 
     async def create_session(self, claims: TokenClaims) -> SessionData:
+        if self.settings.keycloak_required_role not in claims.roles:
+            raise PermissionError('Required application role is missing')
         async with get_session() as db:
             # Get or create user
             stmt = select(User).where(User.keycloak_subject == claims.sub)

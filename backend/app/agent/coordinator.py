@@ -74,10 +74,12 @@ class AgentCoordinator:
                 payload={
                     'threadId': str(thread.id),
                     'runId': str(run.id),
-                    'messages': messages,
-                    'state': state or {},
-                    'tools': tools or [],
-                    'context': context or {},
+                    # Runs are auditable without persisting prompts, mailbox
+                    # content, or arbitrary client context.
+                    'messages': [],
+                    'state': {},
+                    'tools': [],
+                    'context': {},
                     'resume': resume or [],
                 },
             )
@@ -164,6 +166,8 @@ class AgentCoordinator:
         """
         from app.tools.registry import ToolExecutor
 
+        self.active_run_id = run.id
+
         user_text = ''
         for message in reversed(messages):
             if message.get('role') == 'user':
@@ -201,7 +205,7 @@ class AgentCoordinator:
                 'TEXT_MESSAGE_CONTENT',
                 {
                     'messageId': str(uuid4()),
-                    'delta': f'No messages matched "{query}". Try a different query.',
+                    'delta': 'No messages matched. Try a different query.',
                 },
             )
             return {'type': 'success'}
@@ -237,31 +241,15 @@ class AgentCoordinator:
                 {'message_id': message_id, 'format': 'metadata'},
             )
 
-        lines = []
-        for message_id in top[:5]:
-            detail = await executor.execute(
-                'get_message',
-                {'message_id': message_id, 'format': 'metadata'},
-                connection.id,
-            )
-            if detail.success and detail.data:
-                headers = detail.data.get('headers', {})
-                lines.append(
-                    f"• {headers.get('Subject', '(no subject)')} — "
-                    f"{headers.get('From', 'unknown')} "
-                    f"({headers.get('Date', '')})"
-                )
-
         await self.add_event(
             run.id,
             'TEXT_MESSAGE_CONTENT',
             {
                 'messageId': str(uuid4()),
                 'delta': (
-                    f'Found {len(message_ids)} message(s) for "{query}".\n'
-                    + '\n'.join(lines)
-                    + '\n\nAsk me to archive or trash this selection and I will '
-                    'ask for your approval first.'
+                    f'Found {len(message_ids)} message(s). '
+                    'Ask me to archive or trash this selection and I will ask '
+                    'for your approval first.'
                 ),
             },
         )
@@ -297,7 +285,9 @@ class AgentCoordinator:
         await self.add_event(
             run.id,
             'TOOL_CALL_START',
-            {'toolCallId': call_id, 'toolName': tool, 'args': args},
+            # Do not persist arbitrary tool input: a search query or a pasted
+            # message can itself contain mailbox content.
+            {'toolCallId': call_id, 'toolName': tool, 'args': {}},
         )
         result = await executor.execute(tool, args, connection_id)
         await self.add_event(
@@ -305,10 +295,63 @@ class AgentCoordinator:
             'TOOL_CALL_RESULT',
             {
                 'toolCallId': call_id,
-                'result': result.data if result.success else None,
+                'result': self._safe_event_result(tool, result.data) if result.success else None,
                 'error': result.error,
             },
         )
+        return result
+
+    @staticmethod
+    def _safe_event_result(tool: str, result: object) -> object:
+        """Return the persistable projection of a tool result.
+
+        Agent events are durable and replayable, but may never become an email
+        cache.  In particular, strip headers, snippets, and body fields before
+        writing the event row.
+        """
+        if not isinstance(result, dict):
+            return None
+        if tool == 'search_messages':
+            return {
+                key: result.get(key)
+                for key in ('message_ids', 'next_page_token', 'result_size_estimate')
+            }
+        if tool == 'get_message':
+            return {
+                key: result.get(key)
+                for key in ('id', 'thread_id', 'label_ids', 'size_estimate', 'internal_date')
+            }
+        if tool == 'get_thread':
+            return {
+                'id': result.get('id'),
+                'messages': [
+                    {
+                        key: message.get(key)
+                        for key in ('id', 'thread_id', 'label_ids', 'size_estimate')
+                    }
+                    for message in result.get('messages', [])
+                    if isinstance(message, dict)
+                ],
+            }
+        if tool.startswith('propose_'):
+            return {
+                key: result.get(key)
+                for key in (
+                    'proposal_id',
+                    'tool',
+                    'message_ids',
+                    'action_digest',
+                    'estimated_count',
+                    'estimated_bytes',
+                    'expires_at',
+                    'label_delta_add',
+                    'label_delta_remove',
+                )
+            }
+        # Labels and derived output may carry user-controlled names or content;
+        # their live SSE representation does not need a durable copy.
+        if tool in ('list_labels', 'summarize_selection', 'group_by_sender'):
+            return None
         return result
 
     def _interrupt_outcome(self, result) -> dict:
@@ -403,10 +446,24 @@ class AgentCoordinator:
                     continue
 
                 if status == 'rejected':
-                    await db.execute(
+                    res = await db.execute(
                         update(ApprovalProposal)
                         .where(ApprovalProposal.id == proposal_id)
+                        .where(ApprovalProposal.status == ProposalStatus.PENDING)
                         .values(status=ProposalStatus.CANCELLED)
+                        .returning(ApprovalProposal.id)
+                    )
+                    if not res.scalar_one_or_none():
+                        continue
+                    from app.db.models import ApprovalDecision
+
+                    db.add(
+                        ApprovalDecision(
+                            proposal_id=proposal.id,
+                            actor_user_id=self.user_id,
+                            decision='rejected',
+                            interrupt_id=str(proposal.id),
+                        )
                     )
                     await db.commit()
                     await self.add_event(
@@ -476,6 +533,16 @@ class AgentCoordinator:
                 )
                 if not res.scalar_one_or_none():
                     continue
+                from app.db.models import ApprovalDecision
+
+                db.add(
+                    ApprovalDecision(
+                        proposal_id=proposal.id,
+                        actor_user_id=self.user_id,
+                        decision='approved',
+                        interrupt_id=str(proposal.id),
+                    )
+                )
                 await db.commit()
 
                 engine = ExecutionEngine(
@@ -512,7 +579,9 @@ class AgentCoordinator:
                     payload={'outcome': outcome},
                 )
             )
-            current.status = RunStatus.COMPLETED
+            current.status = (
+                RunStatus.INTERRUPTED if outcome.get('type') == 'interrupt' else RunStatus.COMPLETED
+            )
             current.outcome_type = outcome.get('type')
             current.outcome_payload = outcome
             current.completed_at = datetime.now(UTC)

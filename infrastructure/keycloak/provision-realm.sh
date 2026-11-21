@@ -99,6 +99,14 @@ else
     echo "Role email-agent-user already exists"
 fi
 
+# This is a dedicated realm. Make the application role a composite of the
+# realm's default role so newly created local users can log in immediately.
+# kcadm's add-roles operation is idempotent when the composite already exists.
+DEFAULT_ROLE="default-roles-$REALM_NAME"
+/opt/keycloak/bin/kcadm.sh add-roles -r "$REALM_NAME" \
+    --rname "$DEFAULT_ROLE" \
+    --rolename "email-agent-user"
+
 echo ""
 echo "=== Provisioning Complete ==="
 echo "Realm: $REALM_NAME"
