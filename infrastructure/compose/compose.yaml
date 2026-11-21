@@ -1,0 +1,114 @@
+services:
+  web:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    image: ${WEB_IMAGE:-email-agent-web:latest}
+    container_name: email-agent-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:80"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - email-agent-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    image: ${API_IMAGE:-email-agent-api:latest}
+    container_name: email-agent-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - ROOT_PATH=/mail/api
+      - DATABASE_URL=postgresql+asyncpg://email_agent:${POSTGRES_PASSWORD}@postgres:5432/email_agent
+      - KEYCLOAK_ISSUER=https://capriman27.duckdns.org/auth/realms/email-agent
+      - KEYCLOAK_JWKS_URL=https://capriman27.duckdns.org/auth/realms/email-agent/protocol/openid-connect/certs
+      - KEYCLOAK_CLIENT_ID=email-agent-bff
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
+      - KEYCLOAK_AUDIENCE=email-agent-api
+      - KEYCLOAK_END_SESSION_ENDPOINT=https://capriman27.duckdns.org/auth/realms/email-agent/protocol/openid-connect/logout
+      - SESSION_COOKIE_NAME=__Secure-ea_session
+      - SESSION_COOKIE_PATH=/mail
+      - SESSION_IDLE_TIMEOUT_MINUTES=480
+      - SESSION_ABSOLUTE_TIMEOUT_MINUTES=720
+      - SESSION_COOKIE_SECURE=true
+      - SESSION_COOKIE_SAMESITE=lax
+      - CSRF_SECRET_KEY=${CSRF_SECRET_KEY}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=https://capriman27.duckdns.org/mail/api/v1/connections/gmail/callback
+      - KEK_BASE64=${KEK_BASE64}
+      - KEK_KEY_ID=kek-v1
+      - GMAIL_QUOTA_PER_MINUTE=6000
+      - GMAIL_MAX_FULL_FETCH_PER_RUN=25
+      - GMAIL_MAX_MESSAGES_PER_RUN=250
+      - GMAIL_CHUNK_SIZE=200
+      - AGENT_MAX_TOOL_STEPS=20
+      - AGENT_MAX_WALL_CLOCK_SECONDS=120
+      - AGENT_MAX_TOKENS_PER_STEP=4000
+      - AGUI_VERSION=0.1.0
+      - LOG_LEVEL=INFO
+      - FRONTEND_URL=https://capriman27.duckdns.org/mail/
+    networks:
+      - email-agent-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: email-agent-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=email_agent
+      - POSTGRES_USER=email_agent
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - email-agent-postgres-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d
+    networks:
+      - email-agent-network
+    ports: []
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U email_agent -d email_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+networks:
+  email-agent-network:
+    driver: bridge
+
+volumes:
+  email-agent-postgres-data:

@@ -1,0 +1,22 @@
+{
+    admin off
+    local_certs
+}
+
+# Local development with HTTPS via Caddy
+# Access at https://localhost.mail/
+
+localhost.mail {
+    reverse_proxy /mail/* web:80
+    reverse_proxy /mail/api/* api:8000
+
+    # Security headers
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
+
+# For testing with a real domain locally, add to /etc/hosts:
+# 127.0.0.1 localhost.mail

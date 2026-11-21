@@ -1,0 +1,28 @@
+# Local development override - adds Caddy for HTTPS
+# Usage: docker compose -f compose.yaml -f compose.local.yaml up -d
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: email-agent-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - email-agent-network
+    depends_on:
+      - web
+      - api
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  caddy_data:
+  caddy_config:
